@@ -906,7 +906,7 @@ function startDemo() { progress('Simulando carrera…', .5); setTimeout(() => { 
 let LV = null;
 const LIVE_DELAY = 3000;
 function liveSimT() { return LV && LV.off !== null ? Date.now() - LV.off - LIVE_DELAY - LV.t0 : 0; }
-function stopLive() { if (LV) { LV.closed = true; try { LV.ws.close(); } catch (e) {} clearInterval(LV.timer); LV = null; } }
+function stopLive() { startLive.fails = 0; if (LV) { LV.closed = true; try { LV.ws.close(); } catch (e) {} clearInterval(LV.timer); LV = null; } }
 function showRC(text) {
   const el = $('rc'); el.innerHTML = '<b>Dirección de carrera</b>' + text.replace(/[<>&]/g, '');
   el.hidden = false; clearTimeout(showRC.t); showRC.t = setTimeout(() => el.hidden = true, 7000);
@@ -982,16 +982,26 @@ function startLive(url) {
     if (LV !== me) return;
     if (!me.world) {
       liveTrackFromCars();
-      if (!me.world) progress(me.session ? 'Esperando posiciones de los coches…' : 'Conectado. Esperando una sesión en vivo de F1…', me.session ? .7 : .5);
+      if (!me.world && me.open) {
+        const up = me.upstream === 'error' ? 'El relay no logra conectarse con F1; reintentando.' : me.upstream === 'desconectado' || !me.upstream ? 'El relay se está conectando con F1…' : 'Relay conectado con F1 (' + me.upstream + ').';
+        if (me.session) progress(up + ' Esperando posiciones de los coches…', .7);
+        else { $('load').hidden = true; liveStatus('Sin sesión en vivo ahora · ' + up); }
+      }
     }
     liveTrim();
   }, 2000);
-  ws.onerror = () => { if (LV === me) { $('load').hidden = true; $('sheet').hidden = false; $('msg').textContent = 'No pude conectar con el relay. Revisa la dirección; si está en Render, ábrela una vez en el navegador para despertarlo.'; } };
-  ws.onclose = () => { if (LV === me && !me.closed) { liveStatus('Relay desconectado. Reconectando…'); setTimeout(() => { if (LV === me) startLive(url); }, 4000); } };
+  ws.onopen = () => { if (LV !== me) return; me.open = true; startLive.fails = 0; $('msg').textContent = ''; $('sheet').hidden = true; liveStatus('Conectado a tu relay'); };
+  ws.onclose = () => {
+    if (LV !== me || me.closed) return;
+    startLive.fails = (startLive.fails || 0) + 1;
+    liveStatus('Relay desconectado. Reconectando…');
+    progress(startLive.fails > 1 ? 'No logro conectar con el relay (intento ' + startLive.fails + '). Si está en Render, puede estar despertando; sigo intentando.' : 'Conectando con tu relay…', .2);
+    setTimeout(() => { if (LV === me) startLive(url); }, Math.min(15000, 3000 * startLive.fails));
+  };
   ws.onmessage = ev => {
     if (LV !== me) return;
     let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
-    if (m.type === 'status') { if (!me.world) progress(m.upstream === 'error' ? 'El relay no logra conectarse con F1. Reintentando…' : 'Relay conectado (' + m.upstream + '). Esperando datos…', .4); }
+    if (m.type === 'status') { me.upstream = m.upstream; }
     else if (m.type === 'session') { me.session = m; if (me.world) liveStatus((m.country || m.meeting) + ' · ' + m.name + ' · en vivo' + (m.trackStatus && m.trackStatus !== 'AllClear' ? ' · ' + m.trackStatus : '')); liveTrack(); }
     else if (m.type === 'drivers') {
       for (const [num, d] of Object.entries(m.drivers)) { me.drivers[num] = d; const c = me.cars[num]; if (c) Object.assign(c, { code: d.code, name: d.name, team: d.team, color: d.color }); }
