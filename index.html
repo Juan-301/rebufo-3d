@@ -79,11 +79,17 @@ footer{position:fixed;left:calc(env(safe-area-inset-left) + 10px);right:calc(env
 .f label{font-size:13px;color:var(--dim)}
 .f select,.f input{min-height:44px;font-size:16px;border-radius:9px;border:1px solid var(--line);background:#14171c;padding:0 10px;width:100%}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.seg{display:grid;grid-template-columns:1fr 1fr;gap:6px;background:#14171c;padding:4px;border-radius:10px;margin-bottom:14px}
+.seg{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;background:#14171c;padding:4px;border-radius:10px;margin-bottom:14px}
 .seg button{min-height:40px;border:0;border-radius:7px;background:transparent}
 .seg button.on{background:var(--acc);color:#111;font-weight:700}
 .acts{display:flex;gap:10px;justify-content:flex-end;margin-top:6px}
 #msg{min-height:20px;font-size:14px;color:#ff9b8a;margin:4px 0 0}
+#rc{position:fixed;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top) + 62px);max-width:min(560px,70vw);padding:8px 14px;font-size:14px;z-index:4;text-align:center}
+#rc[hidden]{display:none}
+#rc b{color:var(--acc);margin-right:8px}
+.live-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#ff3b30;margin-right:6px;animation:blink 1.2s infinite}
+@keyframes blink{50%{opacity:.25}}
+@media(prefers-reduced-motion:reduce){.live-dot{animation:none}}
 #load{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(340px,86vw);padding:18px;z-index:6;text-align:center}
 #load[hidden]{display:none}
 #load .t{font-weight:700;margin-bottom:10px}
@@ -159,7 +165,12 @@ footer{position:fixed;left:calc(env(safe-area-inset-left) + 10px);right:calc(env
   <p>Reconstruye cualquier sesión desde 2023 con datos de OpenF1, o usa la carrera simulada.</p>
   <div class="seg" role="tablist">
    <button type="button" id="srcDemo" class="on">Simulada</button>
-   <button type="button" id="srcReal">OpenF1 (real)</button>
+   <button type="button" id="srcReal">Repetición</button>
+   <button type="button" id="srcLive">En vivo</button>
+  </div>
+  <div id="liveFields" hidden>
+   <div class="f"><label for="relay">Servidor relay</label><input id="relay" type="url" placeholder="wss://rebufo-relay.onrender.com" autocomplete="off" spellcheck="false"></div>
+   <div class="note">Se conecta a tu relay, que reenvía el feed de tiempos en vivo de F1. Los coches van unos 3 segundos detrás del directo. Si el relay de Render estaba dormido, tarda hasta un minuto en despertar.</div>
   </div>
   <div id="realFields" hidden>
    <div class="f"><label for="year">Temporada</label>
@@ -180,6 +191,7 @@ footer{position:fixed;left:calc(env(safe-area-inset-left) + 10px);right:calc(env
  </form>
 </div>
 
+<div id="rc" class="pan" hidden aria-live="polite"></div>
 <div id="load" class="pan" hidden><div class="t" id="loadT">Cargando…</div><div class="b"><i id="loadB"></i></div></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -349,7 +361,7 @@ function makeDemo() {
   const cars = S.map(c => ({ num: c.num, code: c.code, name: c.name, team: c.team, color: c.color, grid: c.num,
     t: Float64Array.from(c.t), x: Float32Array.from(c.x), y: Float32Array.from(c.y), z: Float32Array.from(c.z), laps: c.laps, pos: c.pos, gap: c.gap,
     tel: { t: Float64Array.from(c.t), spd: Float32Array.from(c.T.spd), thr: Float32Array.from(c.T.thr), brk: Float32Array.from(c.T.brk), gear: Uint8Array.from(c.T.gear), rpm: Float32Array.from(c.T.rpm), drs: Uint8Array.from(c.T.drs) }, telState: 'ok' }));
-  return { title: 'Gran Premio simulado · Carrera', cars, track: tr, corners: autoCorners(tr), pit: null, maxLap: LAPS, lapOffset: 0, duration: t * 1000 };
+  return { title: 'Gran Premio simulado · Carrera', isDemo: true, cars, track: tr, corners: autoCorners(tr), pit: null, maxLap: LAPS, lapOffset: 0, duration: t * 1000 };
 }
 
 /* ---------- OpenF1 ---------- */
@@ -608,7 +620,7 @@ function buildWorld(data) {
   $('title').textContent = data.title;
   simT = 0; playing = true; setPlayIcon();
   focus = [...data.cars].sort((a, b) => a.grid - b.grid)[0];
-  orb.target.set((x0 + x1) / 2, 0, (z0 + z1) / 2); orb.dist = trackSize * .95; orb.phi = .85;
+  orb.target.set((x0 + x1) / 2, 0, (z0 + z1) / 2); orb.dist = trackSize * .95 * Math.max(1, .9 / camera.aspect); orb.phi = .85;
   orbCenter.copy(orb.target);
   applySky($('sky').value);
   updateUI(true);
@@ -660,7 +672,7 @@ $('cams').addEventListener('click', e => { const b = e.target.closest('[data-cam
 function setCam(m) {
   camMode = m; camInit = m === 'tcam';
   if (m === 'orbita') { orb.dist = 38; orb.phi = 1.15; }
-  if (m === 'libre') { orb.target.copy(orbCenter); orb.dist = trackSize * .95; orb.phi = .85; }
+  if (m === 'libre') { orb.target.copy(orbCenter); orb.dist = trackSize * .95 * Math.max(1, .9 / camera.aspect); orb.phi = .85; }
   if (m === 'auto') autoT = 0;
   document.querySelectorAll('[data-cam]').forEach(b => b.classList.toggle('on', b.dataset.cam === m));
 }
@@ -792,7 +804,8 @@ function updateUI(force) {
   if (!D) return;
   const st = standings(), lead = st[0];
   const lap = lead ? Math.min(lead.lap, D.maxLap) : 1;
-  $('lapLbl').innerHTML = `V ${lap}/${D.maxLap}<small>${fmt(simT)} / ${fmt(D.duration)}</small>`;
+  $('lapLbl').innerHTML = D.live ? `<span class="live-dot"></span>V ${D.lapNow || lap}${D.maxLap ? '/' + D.maxLap : ''}<small>EN VIVO</small>` : `V ${lap}/${D.maxLap}<small>${fmt(simT)} / ${fmt(D.duration)}</small>`;
+  sc.disabled = !!D.live; $('play').disabled = !!D.live; $('spd').disabled = !!D.live;
   $('lapMini').textContent = 'V' + lap;
   if (!scrubbing) sc.value = Math.floor(simT);
   const html = st.map((s, i) => `<li data-n="${s.c.num}" class="${s.c === focus ? 'on' : ''} ${s.out ? 'out' : ''}"><span class="p">${i + 1}</span><i class="bar" style="background:${s.c.color}"></i><span class="n">${s.c.code}</span><span class="l">${s.out ? 'sin datos' : colTxt(s, i)}</span></li>`).join('');
@@ -836,12 +849,19 @@ function updateHUD() {
   $('hBrk').style.width = (T.brk[nr] > 0 ? Math.min(100, T.brk[nr]) : 0) + '%';
   $('hRpm').style.width = Math.max(0, Math.min(100, (L('rpm') - 4000) / 8500 * 100)) + '%';
   $('hDrs').classList.toggle('on', T.drs[nr] >= 10);
-  note.textContent = c.code + (D.real ? '' : ' · simulada');
+  note.textContent = c.code + (D.isDemo ? ' · simulada' : D.live ? ' · en vivo' : '');
 }
 
 /* sesión */
 let src = 'demo', sessions = [];
-function setSrc(s) { src = s; $('srcDemo').classList.toggle('on', s === 'demo'); $('srcReal').classList.toggle('on', s === 'real'); $('realFields').hidden = s !== 'real'; $('demoFields').hidden = s === 'real'; $('msg').textContent = ''; if (s === 'real' && !sessions.length) loadSessions(); }
+function setSrc(s) {
+  src = s; $('srcDemo').classList.toggle('on', s === 'demo'); $('srcReal').classList.toggle('on', s === 'real'); $('srcLive').classList.toggle('on', s === 'live');
+  $('realFields').hidden = s !== 'real'; $('demoFields').hidden = s !== 'demo'; $('liveFields').hidden = s !== 'live'; $('msg').textContent = '';
+  $('go').textContent = s === 'live' ? 'Conectar' : 'Cargar';
+  if (s === 'real' && !sessions.length) loadSessions();
+  if (s === 'live') { try { $('relay').value = $('relay').value || localStorage.getItem('rebufoRelay') || ''; } catch (e) {} }
+}
+$('srcLive').addEventListener('click', () => setSrc('live'));
 $('srcDemo').addEventListener('click', () => setSrc('demo'));
 $('srcReal').addEventListener('click', () => setSrc('real'));
 $('btnSes').addEventListener('click', () => { $('sheet').hidden = false; });
@@ -862,6 +882,14 @@ async function loadSessions() {
 function progress(t, f) { $('load').hidden = false; $('loadT').textContent = t; $('loadB').style.width = Math.round(f * 100) + '%'; }
 $('form').addEventListener('submit', async e => {
   e.preventDefault(); $('msg').textContent = '';
+  if (src === 'live') {
+    let u = $('relay').value.trim();
+    if (!u) { $('msg').textContent = 'Escribe la dirección de tu relay.'; return; }
+    u = u.replace(/^http/, 'ws'); if (!/^wss?:\/\//.test(u)) u = 'wss://' + u;
+    try { localStorage.setItem('rebufoRelay', u); } catch (e) {}
+    $('sheet').hidden = true; startLive(u); return;
+  }
+  stopLive();
   if (src === 'demo') { $('sheet').hidden = true; startDemo(); return; }
   const s = sessions.find(q => String(q.session_key) === $('sess').value);
   if (!s) { $('msg').textContent = 'Elige una sesión.'; return; }
@@ -874,6 +902,133 @@ $('form').addEventListener('submit', async e => {
 });
 function startDemo() { progress('Simulando carrera…', .5); setTimeout(() => { buildWorld(makeDemo()); setCam('libre'); $('load').hidden = true; }, 30); }
 
+/* ---------- en vivo ---------- */
+let LV = null;
+const LIVE_DELAY = 3000;
+function liveSimT() { return LV && LV.off !== null ? Date.now() - LV.off - LIVE_DELAY - LV.t0 : 0; }
+function stopLive() { if (LV) { LV.closed = true; try { LV.ws.close(); } catch (e) {} clearInterval(LV.timer); LV = null; } }
+function showRC(text) {
+  const el = $('rc'); el.innerHTML = '<b>Dirección de carrera</b>' + text.replace(/[<>&]/g, '');
+  el.hidden = false; clearTimeout(showRC.t); showRC.t = setTimeout(() => el.hidden = true, 7000);
+}
+function liveStatus(t) { $('title').textContent = t; }
+function liveCar(num) {
+  const d = LV.drivers[num] || { code: String(num), name: '', team: '', color: '#8a8f98', line: 99 };
+  if (!LV.cars[num]) LV.cars[num] = { num: +num, code: d.code, name: d.name, team: d.team, color: d.color, grid: d.line,
+    t: [], x: [], y: [], z: [], laps: [{ n: 0, t: -1e15 }], pos: [{ t: -1e15, p: d.line }], gap: [{ t: -1e15, g: null, i: null }],
+    tel: { t: [], spd: [], thr: [], brk: [], gear: [], rpm: [], drs: [] }, telState: 'ok', raw: [] };
+  return LV.cars[num];
+}
+async function liveTrack() {
+  if (LV.trackTried || !LV.session || !LV.session.circuitKey) return;
+  LV.trackTried = true;
+  let mv = null;
+  try {
+    const r = await fetch(PROXY ? '/api/circuit?c=' + LV.session.circuitKey + '&y=' + LV.session.year : 'https://api.multiviewer.app/api/v1/circuits/' + LV.session.circuitKey + '/' + LV.session.year);
+    if (r.ok) mv = await r.json();
+  } catch (e) { mv = null; }
+  if (!LV || !mv || !mv.x || mv.x.length < 20) return;
+  const pts = mv.x.map((x, i) => ({ x, y: mv.y[i] }));
+  setLiveTransform(pts);
+  const track = buildTrack(pts.map(p => LV.W(p)), true);
+  const corners = (mv.corners || []).map(c => { const q = LV.W(c.trackPosition); return { label: String(c.number) + (c.letter || ''), x: q.x, y: 0, z: q.z }; });
+  makeLiveWorld(track, corners);
+}
+function setLiveTransform(pts) {
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (const p of pts) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y); }
+  const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+  LV.W = p => ({ x: (p.x - cx) / 10, y: 0, z: -(p.y - cy) / 10 });
+}
+function liveTrackFromCars() {
+  if (LV.world) return;
+  const c = Object.values(LV.cars).sort((a, b) => b.raw.length - a.raw.length)[0];
+  if (!c || c.raw.length < 450) return;
+  setLiveTransform(c.raw);
+  const track = buildTrack(c.raw.map(p => LV.W(p)), false);
+  makeLiveWorld(track, autoCorners(track));
+}
+function makeLiveWorld(track, corners) {
+  if (LV.world) return;
+  for (const c of Object.values(LV.cars)) { for (const p of c.raw) pushPos(c, p.t, p); c.raw = []; }
+  const s = LV.session || {};
+  const data = { title: (s.country || s.meeting || 'F1') + ' · ' + (s.name || 'Sesión') + ' · en vivo', cars: Object.values(LV.cars), track, corners, pit: null, maxLap: LV.total || 0, duration: 1, live: true };
+  LV.world = true; LV.D = data;
+  buildWorld(data); setCam('libre');
+  $('load').hidden = true;
+}
+function pushPos(c, t, p) {
+  const w = LV.W(p), rt = t - LV.t0;
+  if (c.t.length && rt <= c.t[c.t.length - 1]) return;
+  c.t.push(rt); c.x.push(w.x); c.y.push(.02); c.z.push(w.z);
+}
+function liveTrim() {
+  if (!LV || !LV.D) return;
+  const lim = simT - 600000;
+  for (const c of LV.D.cars) {
+    const k = c.t.findIndex(v => v >= lim);
+    if (k > 50) { c.t.splice(0, k); c.x.splice(0, k); c.y.splice(0, k); c.z.splice(0, k); }
+    const T = c.tel, j = T.t.findIndex(v => v >= lim);
+    if (j > 50) for (const key of Object.keys(T)) T[key].splice(0, j);
+  }
+}
+function startLive(url) {
+  stopLive();
+  progress('Conectando con tu relay…', .2);
+  const ws = new WebSocket(url);
+  LV = { ws, url, drivers: {}, cars: {}, session: null, off: null, t0: null, world: false, trackTried: false, total: 0, closed: false };
+  const me = LV;
+  LV.timer = setInterval(() => {
+    if (LV !== me) return;
+    if (!me.world) {
+      liveTrackFromCars();
+      if (!me.world) progress(me.session ? 'Esperando posiciones de los coches…' : 'Conectado. Esperando una sesión en vivo de F1…', me.session ? .7 : .5);
+    }
+    liveTrim();
+  }, 2000);
+  ws.onerror = () => { if (LV === me) { $('load').hidden = true; $('sheet').hidden = false; $('msg').textContent = 'No pude conectar con el relay. Revisa la dirección; si está en Render, ábrela una vez en el navegador para despertarlo.'; } };
+  ws.onclose = () => { if (LV === me && !me.closed) { liveStatus('Relay desconectado. Reconectando…'); setTimeout(() => { if (LV === me) startLive(url); }, 4000); } };
+  ws.onmessage = ev => {
+    if (LV !== me) return;
+    let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+    if (m.type === 'status') { if (!me.world) progress(m.upstream === 'error' ? 'El relay no logra conectarse con F1. Reintentando…' : 'Relay conectado (' + m.upstream + '). Esperando datos…', .4); }
+    else if (m.type === 'session') { me.session = m; if (me.world) liveStatus((m.country || m.meeting) + ' · ' + m.name + ' · en vivo' + (m.trackStatus && m.trackStatus !== 'AllClear' ? ' · ' + m.trackStatus : '')); liveTrack(); }
+    else if (m.type === 'drivers') {
+      for (const [num, d] of Object.entries(m.drivers)) { me.drivers[num] = d; const c = me.cars[num]; if (c) Object.assign(c, { code: d.code, name: d.name, team: d.team, color: d.color }); }
+      for (const num of Object.keys(m.drivers)) liveCar(num);
+    }
+    else if (m.type === 'pos') {
+      const off = Date.now() - m.t;
+      me.off = me.off === null ? off : Math.min(off, me.off + 40);
+      if (me.t0 === null) me.t0 = m.t - 60000;
+      for (const [num, v] of Object.entries(m.c)) {
+        if (!v[0] && !v[1]) continue;
+        const c = liveCar(num), p = { t: m.t, x: v[0], y: v[1] };
+        if (me.world) pushPos(c, m.t, p); else { c.raw.push(p); if (c.raw.length > 3000) c.raw.shift(); }
+      }
+    }
+    else if (m.type === 'tel') {
+      if (me.t0 === null) return;
+      for (const [num, v] of Object.entries(m.c)) {
+        const c = me.cars[num]; if (!c) continue;
+        const T = c.tel, rt = m.t - me.t0;
+        if (T.t.length && rt <= T.t[T.t.length - 1]) continue;
+        T.t.push(rt); T.rpm.push(v[0]); T.spd.push(v[1]); T.gear.push(v[2]); T.thr.push(v[3]); T.brk.push(v[4] > 0 ? 100 : 0); T.drs.push(v[5]);
+      }
+    }
+    else if (m.type === 'timing') {
+      me.total = m.total;
+      for (const [num, l] of Object.entries(m.lines)) {
+        const c = me.cars[num]; if (!c) continue;
+        c.pos[0].p = l.p; c.grid = l.p; c.laps[0].n = l.lap;
+        c.gap[0] = { t: -1e15, g: l.gap || null, i: l.int || null };
+      }
+      if (me.D) { me.D.maxLap = m.total || 0; me.D.lapNow = m.lap || 0; }
+    }
+    else if (m.type === 'rc') { if (me.world) showRC(m.text); }
+  };
+}
+
 /* ---------- bucle ---------- */
 function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
 const ro = new ResizeObserver(resize); ro.observe(document.body); resize();
@@ -881,7 +1036,8 @@ let last = performance.now(), lastUI = 0, lastHud = 0;
 function frame(now) {
   const dt = Math.min(.1, (now - last) / 1000); last = now;
   if (D) {
-    if (playing && !scrubbing) { simT += dt * 1000 * speed; if (simT >= D.duration) { simT = D.duration; playing = false; setPlayIcon(); } }
+    if (D.live) simT = liveSimT();
+    else if (playing && !scrubbing) { simT += dt * 1000 * speed; if (simT >= D.duration) { simT = D.duration; playing = false; setPlayIcon(); } }
     updateCars(); updateCamera(dt); updateRain(dt);
     if (now - lastUI > 220) { lastUI = now; updateUI(); }
     if (now - lastHud > 70) { lastHud = now; updateHUD(); }
